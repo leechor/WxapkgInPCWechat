@@ -108,7 +108,7 @@ def _AESDecrypt(src, key, iv):
     return decBuffer[0:(len(decBuffer) - decBuffer[-1])]
 
 
-def decPCWxapkg(filePath, wxId):
+def decPCWxapkg(filePath, wxId, decrypt):
     """
     对 WeChat PC端的小程序进行解密&解包
 
@@ -122,9 +122,12 @@ def decPCWxapkg(filePath, wxId):
         if packlen < 6:
             logger.error('file too small')
             exit(0)
-        if not packBuffer.startswith('V1MMWX'.encode('utf-8')):
-            logger.error('file format error')
+        if not packBuffer.startswith('V1MMWX'.encode('utf-8')) and decrypt:
+            logger.warning('file format error')
             exit(0)
+        else:
+            return packBuffer
+
         pbkdf2Key = hashlib.pbkdf2_hmac('sha1', wxId.encode('utf-8'), 'saltiest'.encode('utf-8'), 1000, 32)
         iv = 'the iv: 16 bytes'
         if packlen > 1024 + 6:
@@ -205,7 +208,7 @@ def WxapkgUnPack(_rootPath, _fileName, _fileData):
     dirName = os.path.splitext(_fileName)[0]
     for st in fileList:
         outFileName = st.name.decode("utf-8")
-        outFilePath = _rootPath + '\\' + dirName + outFileName
+        outFilePath = _rootPath + '/a' + dirName + outFileName
         nameList.append(outFilePath)
         dirPath = os.path.dirname(outFilePath)
         if not os.path.exists(dirPath):
@@ -223,33 +226,33 @@ def WxapkgUnPack(_rootPath, _fileName, _fileData):
     return None
 
 
-def _decWunPack(file, wxId, isUnpack):
+def _decWunPack(file, wxId, isUnpack, decrypt):
     rootPath = os.path.dirname(file)
     fileName = os.path.basename(file)
     # decrypt pkg
-    decPathData = decPCWxapkg(file, wxId)
+    data = decPCWxapkg(file, wxId, decrypt)
 
     if isUnpack:
-        serviceFile = WxapkgUnPack(rootPath, fileName, decPathData)
+        serviceFile = WxapkgUnPack(rootPath, fileName, data)
         # fix pkg
         fix = repairPkg(serviceFile)
         fix.exportFile()
     else:
 
         with open(os.path.join(rootPath, "dec." + fileName), "wb") as f:
-            f.write(decPathData)
+            f.write(data)
         logger.info("save decrypt files : {}".format("dec." + fileName))
 
 
-def decWithunPack(filePath, wxId, isUnpack):
+def decWithunPack(filePath, wxId, isUnpack, decrypt):
     if os.path.isdir(filePath):
         logger.info("Detected the dir, traversed all the wxapkg under the dir")
         dt = DepthTraversal([".wxapkg"])
         pathList = dt.getMatchFiles(filePath)
         for file in pathList:
-            _decWunPack(file, wxId, isUnpack)
+            _decWunPack(file, wxId, isUnpack, decrypt)
     else:
-        _decWunPack(filePath, wxId, isUnpack)
+        _decWunPack(filePath, wxId, isUnpack, decrypt)
 
 
 def pwt(content, end="\n"):
@@ -262,7 +265,7 @@ if __name__ == "__main__":
     args.add_argument("AbsFilePath", type=str, help="The full path of the wxapkg file.")
     args.add_argument("wxId", type=str, help="Applet ID")
     args.add_argument("--unpack", type=str, choices=["enabled", "disabled"], default="enabled", help="default enabled, if set to disabled, only decrypt.")
-
+    args.add_argument("--decrypt", type=str, choices=["enabled", "disabled"],  default="disabled", help="default enabled, if set to disabled, only unpack")
     space = args.parse_args()
 
     path = space.AbsFilePath
@@ -272,4 +275,8 @@ if __name__ == "__main__":
     if space.unpack == "disabled":
         unpack = False
 
-    decWithunPack(path, wxid, unpack)
+    decrypt = True
+    if space.decrypt == "disabled":
+        decrypt = False
+
+    decWithunPack(path, wxid, unpack, decrypt)
